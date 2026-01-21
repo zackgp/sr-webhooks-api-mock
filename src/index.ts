@@ -5,9 +5,9 @@ const app = new Hono();
 // In-memory version of GIFT_CARD_BALANCES
 // Ruby: GIFT_CARD_BALANCES = Hash.new { |hash, key| hash[key] = 0 }
 const balances: Record<string, number> = {
-  "1": 10000,
-  "2": 10,
-  "3": 0,
+  "CW001": 10000,
+  "CW002": 10,
+  "CW003": 0,
 };
 
 app.get("/", (c) => {
@@ -17,23 +17,41 @@ app.get("/", (c) => {
 // resource :gift_cards
 const giftCards = new Hono();
 
+['check_balance', 'capture', 'refund', 'void'].forEach((base_path) => {
+  giftCards.post(`/${base_path}_error`, async (c) => {
+    return c.json({ message: "Error example with message key" }, 400);
+  });
+
+  giftCards.post(`/${base_path}_error_json`, async (c) => {
+    return c.json({ error: "Error example without message key" }, 422);
+  });
+
+  giftCards.post(`/${base_path}_error_text`, async (c) => {
+    return c.text("Error example is not JSON", 500);
+  });
+});
+
 // POST /gift_cards/check_balance
 giftCards.post("/check_balance", async (c) => {
   try {
     const body = await c.req.json();
     const number = String(body.number);
 
-    // Validation: ExistingGiftCardNumber
-    // requires :number, existing_gift_card_number: true
-    if (!balances.hasOwnProperty(number)) {
+    // Validation: number is required
+    if (body.number.length > 5) {
       return c.json(
         {
           error: "ValidationError",
-          message: "must be an existing gift card number",
+          message: "number must be at most 5 characters long",
           params: ["number"],
         },
         400,
       );
+    }
+
+    // Validation: ExistingGiftCardNumber
+    if (!balances.hasOwnProperty(number)) {
+      return c.text('', 404);
     }
 
     // Handlers logic
@@ -51,20 +69,11 @@ giftCards.post("/capture", async (c) => {
     const amount = parseFloat(body.amount);
 
     // Validation: ExistingGiftCardNumber
-    // requires :number, existing_gift_card_number: true
     if (!balances.hasOwnProperty(number)) {
-      return c.json(
-        {
-          error: "ValidationError",
-          message: "must be an existing gift card number",
-          params: ["number"],
-        },
-        400,
-      );
+      return c.text('', 404);
     }
 
     // Validation: AvailableBalanceSufficient
-    // requires :amount, type: Float, available_balance_sufficient: true
     if (isNaN(amount)) {
       return c.json(
         {
@@ -115,6 +124,11 @@ giftCards.post("/refund", async (c) => {
       );
     }
 
+    // Validation: ExistingGiftCardNumber
+    if (!balances.hasOwnProperty(number)) {
+      return c.text('', 404);
+    }
+
     if (isNaN(amount)) {
       return c.json(
         {
@@ -139,6 +153,66 @@ giftCards.post("/refund", async (c) => {
   }
 });
 
+// POST /gift_cards/void
+giftCards.post("/void", async (c) => {
+  try {
+    const body = await c.req.json();
+    const number = String(body.number);
+    const amount = parseFloat(body.amount);
+
+    // Validation: ExistingGiftCardNumber
+    if (!balances.hasOwnProperty(number)) {
+      return c.text('', 404);
+    }
+
+    if (isNaN(amount)) {
+      return c.json(
+        {
+          error: "ValidationError",
+          message: "amount must be a number",
+          params: ["amount"],
+        },
+        400,
+      );
+    }
+
+    balances[number] += amount;
+
+    // Handlers logic
+    return c.json({ balance: balances[number] });
+  } catch (err) {
+    return c.json({ error: "Invalid Request" }, 400);
+  }
+});
+
 app.route("/gift_cards", giftCards);
+
+
+// resource :custom_payment
+const customPayment = new Hono();
+
+['capture', 'refund', 'void'].forEach((base_path) => {
+  customPayment.post(base_path, async (c) => {
+    return c.json({ message: 'Success' }, 200);
+  });
+
+  customPayment.post(`/${base_path}_error`, async (c) => {
+    return c.json({ message: "Error example with message key" }, 400);
+  });
+
+  customPayment.post(`/${base_path}_error_json`, async (c) => {
+    return c.json({ error: "Error example without message key" }, 422);
+  });
+
+  customPayment.post(`/${base_path}_error_text`, async (c) => {
+    return c.text("Error example is not JSON", 500);
+  });
+});
+
+app.route("/custom_payment", customPayment);
+
+app.notFound((c) => {
+  return c.text("Forbidden", 403);
+});
 
 export default app;
